@@ -1,4 +1,4 @@
-#include <iostream>
+ #include <iostream>
  #include <cmath>
  #include "ns3/aodv-module.h"
  #include "ns3/core-module.h"
@@ -8,6 +8,7 @@
  #include "ns3/point-to-point-module.h"
  #include "ns3/v4ping-helper.h"
  #include "ns3/yans-wifi-helper.h"
+ #include "ns3/applications-module.h"
   
  using namespace ns3;
   
@@ -32,12 +33,20 @@
    NodeContainer nodes;
    NetDeviceContainer devices;
    Ipv4InterfaceContainer interfaces;
+
+   // To calculate staticstic
+   uint32_t packetsSent;
+   uint32_t packetsReceived;
+   uint64_t bytesSent;
+   uint64_t bytesReceived;
   
  private:
    void CreateNodes ();
    void CreateDevices ();
    void InstallInternetStack ();
    void InstallApplications ();
+   void SendPacket();
+   void ReceivePacket();
  };
   
  int main (int argc, char **argv)
@@ -57,6 +66,10 @@
    step (50),
    totalTime (100),
    pcap (true),
+   packetsSent (0),
+   packetsReceived (0),
+   bytesSent (0),
+   bytesReceived (0),
    printRoutes (true)
  {
  }
@@ -88,8 +101,15 @@
    CreateDevices ();
    InstallInternetStack ();
    InstallApplications ();
-  
-   std::cout << "Starting simulation for " << totalTime << " s ...\n";
+   std::cout << "Starting simulation for my version" << totalTime << " s ...\n";
+   
+   double throughput = static_cast<double>(bytesReceived) / totalTime;
+   double packetDeliveryRatio = static_cast<double>(packetsReceived) / (packetsSent);
+   double packetLossRate = 1.0 - packetDeliveryRatio;
+
+   std::cout << "Throughput: " << throughput << " bytes/second\n";
+   std::cout << "Packet Delivery Ratio: " << packetDeliveryRatio << "\n";
+   std::cout << "Packet Loss Rate: " << packetLossRate << "\n";
   
    Simulator::Stop (Seconds (totalTime));
    Simulator::Run ();
@@ -177,4 +197,43 @@
    Ptr<Node> node = nodes.Get (size/2);
    Ptr<MobilityModel> mob = node->GetObject<MobilityModel> ();
    Simulator::Schedule (Seconds (totalTime/3), &MobilityModel::SetPosition, mob, Vector (1e5, 1e5, 1e5));
+ }
+ 
+ void AodvExample::SendPacket()
+ {
+    // Create a packet and a packet sink on the destination node
+    Ptr<Packet> packet = Create<Packet>(1024); // 1024 bytes packet size (you can change this)
+    uint32_t destinationNodeIndex = 1; // Change this to the index of the destination node
+
+    // Get the source and destination nodes
+    Ptr<Node> sourceNode = nodes.Get(0);
+    Ptr<Node> destinationNode = nodes.Get(destinationNodeIndex);
+
+    // Create a packet source on the source node
+    PacketSinkHelper packetSinkHelper("ns3::UdpSocketFactory", InetSocketAddress(interfaces.GetAddress(destinationNodeIndex), 9));
+    ApplicationContainer sinkApps = packetSinkHelper.Install(destinationNode);
+    sinkApps.Start(Seconds(0.0));
+    sinkApps.Stop(Seconds(totalTime));
+
+    // Create a packet source on the source node
+    UdpClientHelper udpClient(interfaces.GetAddress(destinationNodeIndex), 9);
+    udpClient.SetAttribute("MaxPackets", UintegerValue(1)); // Send one packet
+    udpClient.SetAttribute("Interval", TimeValue(Seconds(1.0))); // Send the packet every 1 second
+
+    ApplicationContainer sourceApps = udpClient.Install(sourceNode);
+    sourceApps.Start(Seconds(1.0)); // Start sending after 1 second of simulation time
+    sourceApps.Stop(Seconds(totalTime));
+ }
+
+ void AodvExample::ReceivePacket()
+ {
+      // Set up a packet sink on the destination node to receive packets
+    uint32_t destinationNodeIndex = 1; // Change this to the index of the destination node
+    Ptr<Node> destinationNode = nodes.Get(destinationNodeIndex);
+
+    // Create a packet sink application to receive packets
+    PacketSinkHelper packetSinkHelper("ns3::UdpSocketFactory", InetSocketAddress(Ipv4Address::GetAny(), 9));
+    ApplicationContainer sinkApps = packetSinkHelper.Install(destinationNode);
+    sinkApps.Start(Seconds(0.0));
+    sinkApps.Stop(Seconds(totalTime));
  }
